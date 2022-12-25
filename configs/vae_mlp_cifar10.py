@@ -15,7 +15,8 @@ scheduler = dict(
 
 
 # optim
-lr=0.1
+optimizer="SGD"
+lr=0.001
 momentum=0.9
 weight_decay=1e-4
 

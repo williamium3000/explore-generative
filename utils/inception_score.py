@@ -21,9 +21,6 @@ def inception_score(imgs, batch_size=64, resize=True, splits=10):
     resize -- if image size is smaller than 229, then resize it to 229
     splits -- number of splits, if splits are different, the inception score could be changing even using same data
     """
-    # Set up dtype
-    device = torch.device("cuda:0")  # you can change the index of cuda
-
     N = len(imgs)
 
     assert batch_size > 0
@@ -34,9 +31,10 @@ def inception_score(imgs, batch_size=64, resize=True, splits=10):
     dataloader = torch.utils.data.DataLoader(imgs, batch_size=batch_size)
 
     # Load inception model
-    inception_model = inception_v3(pretrained=True, transform_input=False).to(device)
+    inception_model = inception_v3(pretrained=True, transform_input=False).cuda()
     inception_model.eval()
-    up = nn.Upsample(size=(299, 299), mode='bilinear', align_corners=False).to(device)
+    up = nn.Upsample(size=(299, 299), mode='bilinear', align_corners=False).cuda()
+    inception_model.eval()
 
     def get_pred(x):
         if resize:
@@ -49,7 +47,8 @@ def inception_score(imgs, batch_size=64, resize=True, splits=10):
     preds = np.zeros((N, 1000))
 
     for i, batch in enumerate(dataloader, 0):
-        batch = batch[0].to(device)
+        batch = batch[0].cuda()
+        inception_model.eval()
         batch_size_i = batch.size()[0]
 
         preds[i * batch_size:i * batch_size + batch_size_i] = get_pred(batch)
@@ -69,14 +68,18 @@ def inception_score(imgs, batch_size=64, resize=True, splits=10):
     return np.mean(split_scores), np.std(split_scores)
 
 
-#------------------- main function -------------------#
-# example of torch dataset, you can produce your own dataset
-cifar = dset.CIFAR10(root='../dataSet/cifar10', download=True,
-                     transform=transforms.Compose([transforms.Resize(32),
-                                                   transforms.ToTensor(),
-                                                   transforms.Normalize(mean_inception, std_inception)
-                                                   ])
-                     )
-mean, std = inception_score(cifar, 5, splits=10)
-print('IS is %.4f' % mean)
-print('The std is %.4f' % std)
+
+
+if __name__ == '__main__':
+
+    #------------------- main function -------------------#
+    # example of torch dataset, you can produce your own dataset
+    cifar = dset.CIFAR10(root='../dataSet/cifar10', download=True,
+                        transform=transforms.Compose([transforms.Resize(32),
+                                                    transforms.ToTensor(),
+                                                    transforms.Normalize(mean_inception, std_inception)
+                                                    ])
+                        )
+    mean, std = inception_score(cifar, 5, splits=10)
+    print('IS is %.4f' % mean)
+    print('The std is %.4f' % std)

@@ -3,6 +3,8 @@ import logging
 import os
 import pprint
 import time
+from tempfile import TemporaryDirectory
+
 import torch
 from torch import nn
 import torch.distributed as dist
@@ -14,10 +16,11 @@ import tqdm
 from mmcv import Config
 from torchvision.transforms import autoaugment, transforms
 import torchvision
+from torchvision.datasets impo
+from torchvision.utils import save_image
 
 from utils.utils import count_params, init_log, accuracy
 from utils.dist import setup_distributed
-
 
 from models.vae.vae import VAE
 
@@ -27,36 +30,19 @@ parser.add_argument('--save-path', type=str, required=True)
 parser.add_argument('--local_rank', default=0, type=int)
 parser.add_argument('--port', default=None, type=int)
 
-
-def evaluate(model, loader, cfg, criterion, local_rank=-1):
-    model.eval()
-    total_loss = 0.0
-    total_acc1 = 0.0
-    total_acc5 = 0.0
-    total_num = 0.0
-    with torch.no_grad():
-        for image, target in tqdm.tqdm(loader, disable=local_rank != 0 and local_rank != -1):
-            image = image.cuda()
-            target = target.cuda()
-            output = model(image)
-            loss = criterion(output, target)
-            
-            acc1, acc5 = accuracy(output, target, topk=(1, 5))
-            bs = image.size(0)
-            total_loss += loss * bs
-            total_acc1 += acc1 * bs
-            total_acc5 += acc5 * bs
-            total_loss += loss * bs
-            total_num += bs
-
-    dist.all_reduce(total_acc1)
-    dist.all_reduce(total_acc5)
-    dist.all_reduce(total_loss)
+def evaluate(model, cfg, sample_num):
+    with TemporaryDirectory() as temp_dir:
+        sample(model, cfg, sample_num, temp_dir)
+        torchvision
+        
     
-    total_num = torch.tensor(total_num).cuda()
-    dist.all_reduce(total_num)
 
-    return total_acc1 / total_num, total_acc5 / total_num, total_loss / total_num
+def sample(model, cfg, sample_num, save_path):
+    model.eval()
+    with torch.no_grad():
+        for i in tqdm.tqdm(range(sample_num)):
+            output = model.sample(cfg['batch_size'])
+        save_image(output, os.path.join(save_path, f"{i}.jpg"))
 
 def main():
     args = parser.parse_args()
@@ -76,7 +62,7 @@ def main():
     cudnn.enabled = True
     cudnn.benchmark = True
 
-    model = VAE(768, 256)
+    model = VAE(32*32*3, 256)
     
     if rank == 0:
         logger.info('Total params: {:.1f}M\n'.format(count_params(model)))
@@ -120,7 +106,7 @@ def main():
         transform=transforms.Compose([
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
         ]))
     trainsampler = torch.utils.data.distributed.DistributedSampler(trainset)
     trainloader = DataLoader(trainset, batch_size=cfg['batch_size'],
@@ -157,6 +143,8 @@ def main():
 
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(
+                   param_groups, 1.0)
             optimizer.step()
             
             time2 = time.time()
