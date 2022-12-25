@@ -5,6 +5,9 @@ import torch
 import os.path as osp
 import torch
 import mmcv
+from torch.utils.data import Dataset
+from PIL import Image
+
 logs = set()
 def init_log(name, level=logging.INFO):
     if (name, level) in logs:
@@ -69,3 +72,22 @@ def load_model(path, model, optimizer=None, scheduler=None):
         scheduler.load_state_dict(to_load["scheduler"])
     epoch = to_load.get("epoch", 0)
     return model, optimizer, scheduler, epoch
+
+
+class FolderDataset(Dataset):
+    def __init__(self, root, transform=None):
+        imgs = []
+        for filename in os.listdir(root):
+            imgs.append(os.path.join(root, filename))
+        self.imgs = imgs
+        self.transform = transform
+
+    def __getitem__(self, index):
+        filepath = self.imgs[index]
+        img = Image.open(filepath).convert('RGB')
+        if self.transform is not None:
+            img = self.transform(img)
+        return img
+
+    def __len__(self):
+        return len(self.imgs)

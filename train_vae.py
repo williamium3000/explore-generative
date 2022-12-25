@@ -16,11 +16,12 @@ import tqdm
 from mmcv import Config
 from torchvision.transforms import autoaugment, transforms
 import torchvision
-from torchvision.datasets impo
+from torchvision.datasets import DatasetFolder
 from torchvision.utils import save_image
 
-from utils.utils import count_params, init_log, accuracy
+from utils.utils import count_params, init_log, accuracy, FolderDataset
 from utils.dist import setup_distributed
+from utils.inception_score import inception_score
 
 from models.vae.vae import VAE
 
@@ -33,8 +34,12 @@ parser.add_argument('--port', default=None, type=int)
 def evaluate(model, cfg, sample_num):
     with TemporaryDirectory() as temp_dir:
         sample(model, cfg, sample_num, temp_dir)
-        torchvision
-        
+        temp_dataset = FolderDataset(temp_dir, transform=transforms.Compose([transforms.Resize(32),
+                                                    transforms.ToTensor(),
+                                                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                                                    ]))
+        IS, is_std = inception_score(temp_dataset, batch_size=64, resize=True, splits=10)
+    return IS
     
 
 def sample(model, cfg, sample_num, save_path):
@@ -96,17 +101,12 @@ def main():
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank],
                                                       output_device=local_rank, find_unused_parameters=False)
 
-    if cfg['criterion']['name'] == 'CELoss':
-        criterion = nn.CrossEntropyLoss().cuda(local_rank)
-    else:
-        raise NotImplementedError('%s criterion is not implemented' % cfg['criterion']['name'])
-    
     trainset = torchvision.datasets.CIFAR10(
         root='../dataSet/cifar10/', train=True, download=True,
         transform=transforms.Compose([
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
         ]))
     trainsampler = torch.utils.data.distributed.DistributedSampler(trainset)
     trainloader = DataLoader(trainset, batch_size=cfg['batch_size'],
@@ -170,23 +170,13 @@ def main():
         if "scheduler" in cfg and cfg["scheduler"]["by_epoch"]:
             scheduler.step()
         
-        # top1_acc_val, top5_acc_val, val_loss_val = evaluate(model, valloader, cfg, criterion, local_rank=rank)
-        # top1_acc_test, top5_acc_test, val_loss_test = evaluate(model, testloader, cfg, criterion, local_rank=rank)
-
         if rank == 0:
             logger.info('***** Evaluation ***** >>>>')
-            # logger.info('Val:  Top1: {:.2f} Top5: {:.2f} Loss: {:.4f}\n'.format(
-            #     top1_acc_val.item() * 100, top5_acc_val.item() * 100, val_loss_val.item()))
-            # logger.info('Test:  Top1: {:.2f} Top5: {:.2f} Loss: {:.4f}\n'.format(
-            #     top1_acc_test.item() * 100, top5_acc_test.item() * 100, val_loss_test.item()))
-
-        # if top1_acc_val > previous_best and rank == 0:
-        #     if previous_best != 0:
-        #         os.remove(os.path.join(args.save_path, 'best_val{:.2f}_test{:.2f}.pth'.format(100 * previous_best, 100 * according_test)))
-        #     previous_best = top1_acc_val
-        #     according_test = top1_acc_test
-        #     torch.save(model.module.state_dict(),
-        #                os.path.join(args.save_path, 'best_val{:.2f}_test{:.2f}.pth'.format(100 * previous_best, 100 * according_test)))
+            IS = evaluate(model, cfg, sample_num=1000)
+            logger.info('Val:  Inception Score: {:.2f} \n'.format(
+                IS.item()))
+            torch.save(model.module.state_dict(),
+                       os.path.join(args.save_path, 'latest.pth'))
 
 
 if __name__ == '__main__':
