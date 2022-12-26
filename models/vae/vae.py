@@ -65,11 +65,18 @@ class VAE(nn.Module):
     def decode(self, z):
         return self.decoder(z)
 
-    def forward(self, x):
+    def forward(self, x=None, num_samples=None):
+        if x is not None:
+            return self.forward_loss(x)
+        else:
+            return self.sample(num_samples)
+    
+    def forward_loss(self, x):
         x = x.view(x.size(0), -1)
         mu, logvar = self.encode(x)
         z = self.reparametrize(mu, logvar)
         return mse_kl_loss(self.decode(z), x, mu, logvar)
+
     
     def sample(self, num_samples):
         """

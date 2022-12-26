@@ -47,7 +47,7 @@ def inception_score(imgs, batch_size=64, resize=True, splits=10):
     preds = np.zeros((N, 1000))
 
     for i, batch in enumerate(dataloader, 0):
-        batch = batch[0].cuda()
+        batch = batch.cuda()
         inception_model.eval()
         batch_size_i = batch.size()[0]
 

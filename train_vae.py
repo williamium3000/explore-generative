@@ -31,8 +31,9 @@ parser.add_argument('--save-path', type=str, required=True)
 parser.add_argument('--local_rank', default=0, type=int)
 parser.add_argument('--port', default=None, type=int)
 
-def evaluate(model, cfg, sample_num):
+def evaluate(model, cfg, sample_num, logger):
     with TemporaryDirectory() as temp_dir:
+        logger.info(f"saving in temp dir {temp_dir}.")
         sample(model, cfg, sample_num, temp_dir)
         temp_dataset = FolderDataset(temp_dir, transform=transforms.Compose([transforms.Resize(32),
                                                     transforms.ToTensor(),
@@ -44,14 +45,25 @@ def evaluate(model, cfg, sample_num):
             batch_size=64, device='cuda',
             dims=2048, num_workers=4)
     return IS, is_std, FID
-    
+
 
 def sample(model, cfg, sample_num, save_path):
     model.eval()
     with torch.no_grad():
         for i in tqdm.tqdm(range(sample_num)):
-            output = model(cfg['batch_size'])
-        save_image(output, os.path.join(save_path, f"{i}.jpg"))
+            sampled_imgs = model(sample=True).reshape(1, 3, 32, 32)
+            sampled_imgs = sampled_imgs * 0.5 + 0.5
+            save_image(sampled_imgs, os.path.join(save_path, f"{i}.jpg"))
+
+def visualize(model, cfg, save_path):
+    model.eval()
+    sampled_imgs = []
+    with torch.no_grad():
+        for i in tqdm.tqdm(range(64)):
+            sampled_img = model(sample=True).reshape(1, 3, 32, 32)
+            sampled_img = sampled_img * 0.5 + 0.5
+            sampled_imgs.append(sampled_img)
+        save_image(torch.cat(sampled_imgs, dim=0), os.path.join(save_path, f"visualization.jpg"), nrow=8)
 
 def main():
     args = parser.parse_args()
@@ -181,6 +193,7 @@ def main():
                 IS, IS_std, FID))
             torch.save(model.module.state_dict(),
                        os.path.join(args.save_path, 'latest.pth'))
+            visualize(model, cfg, save_path=args.save_path)
 
 
 if __name__ == '__main__':
