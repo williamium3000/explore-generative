@@ -51,7 +51,7 @@ def sample(model, cfg, sample_num, save_path):
     model.eval()
     with torch.no_grad():
         for i in tqdm.tqdm(range(sample_num)):
-            sampled_imgs = model(sample=True).reshape(1, 3, 32, 32)
+            sampled_imgs = model(num_samples=1).reshape(1, 3, 32, 32)
             sampled_imgs = sampled_imgs * 0.5 + 0.5
             save_image(sampled_imgs, os.path.join(save_path, f"{i}.jpg"))
 
@@ -60,7 +60,7 @@ def visualize(model, cfg, save_path):
     sampled_imgs = []
     with torch.no_grad():
         for i in tqdm.tqdm(range(64)):
-            sampled_img = model(sample=True).reshape(1, 3, 32, 32)
+            sampled_img = model(num_samples=1).reshape(1, 3, 32, 32)
             sampled_img = sampled_img * 0.5 + 0.5
             sampled_imgs.append(sampled_img)
         save_image(torch.cat(sampled_imgs, dim=0), os.path.join(save_path, f"visualization.jpg"), nrow=8)
