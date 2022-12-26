@@ -22,7 +22,7 @@ from torchvision.utils import save_image
 from utils.utils import count_params, init_log, accuracy, FolderDataset
 from utils.dist import setup_distributed
 from utils.inception_score import inception_score
-
+from pytorch_fid.fid_score import calculate_fid_given_paths
 from models.vae.vae import VAE
 
 parser = argparse.ArgumentParser(description='train domain generalization (oracle)')
@@ -39,14 +39,18 @@ def evaluate(model, cfg, sample_num):
                                                     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
                                                     ]))
         IS, is_std = inception_score(temp_dataset, batch_size=64, resize=True, splits=10)
-    return IS
+        FID = calculate_fid_given_paths(
+            paths=[temp_dir, "utils/fid_statistics/fid_stats_cifar10_train.npz"],
+            batch_size=64, device='cuda',
+            dims=2048, num_workers=4)
+    return IS, is_std, FID
     
 
 def sample(model, cfg, sample_num, save_path):
     model.eval()
     with torch.no_grad():
         for i in tqdm.tqdm(range(sample_num)):
-            output = model.sample(cfg['batch_size'])
+            output = model(cfg['batch_size'])
         save_image(output, os.path.join(save_path, f"{i}.jpg"))
 
 def main():
@@ -139,7 +143,7 @@ def main():
             time1 = time.time()
             
             img, mask = img.cuda(), mask.cuda()
-            loss = model(img)
+            loss = model(x=img)
 
             optimizer.zero_grad()
             loss.backward()
@@ -172,9 +176,9 @@ def main():
         
         if rank == 0:
             logger.info('***** Evaluation ***** >>>>')
-            IS = evaluate(model, cfg, sample_num=1000)
-            logger.info('Val:  Inception Score: {:.2f} \n'.format(
-                IS.item()))
+            IS, IS_std, FID = evaluate(model, cfg, sample_num=1000)
+            logger.info('Val:  IS: {:.2f} IS std : {:.2f} FID : {:.2f}\n'.format(
+                IS, IS_std, FID))
             torch.save(model.module.state_dict(),
                        os.path.join(args.save_path, 'latest.pth'))
 
