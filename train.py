@@ -23,8 +23,7 @@ from utils.utils import count_params, init_log, accuracy, FolderDataset
 from utils.dist import setup_distributed
 from utils.inception_score import inception_score
 from pytorch_fid.fid_score import calculate_fid_given_paths
-# from models.vae.vae import VAE
-from models.vae.vae_mlp import VAE
+from models.builder import build_model
 
 parser = argparse.ArgumentParser(description='train domain generalization (oracle)')
 parser.add_argument('--cfg', type=str, required=True)
@@ -75,7 +74,7 @@ def main():
     cudnn.benchmark = True
 
     # model = VAE(in_channels=3, latent_dim=512, hidden_dims=[32, 128, 512])
-    model = VAE(input_size=3*32*32, latent_dim=512)
+    model = build_model(cfg)
     
     if rank == 0:
         logger.info('Total params: {:.1f}M\n'.format(count_params(model)))

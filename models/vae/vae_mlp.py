@@ -2,6 +2,7 @@ import torch
 from torch.nn import functional as F
 import torch.nn as nn
 
+from ..base import BaseGenerativeModel
 def bce_kl_loss(gen_x, x, mu, logvar):
     """
     gen_x: generating images
@@ -9,13 +10,10 @@ def bce_kl_loss(gen_x, x, mu, logvar):
     mu: latent mean
     logvar: latent log variance
     """
-    BCE = nn.BCELoss(reduction="sum")(gen_x, x)
+    bce_loss = nn.BCELoss(reduction="sum")(gen_x, x)
     # loss = 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    KLD_element = mu.pow(2).add_(logvar.exp()).mul_(-1).add_(1).add_(logvar)
-    # print(KLD_element.shape)
-    KLD = torch.sum(KLD_element).mul_(-0.5)
-    # KL divergence
-    return (BCE +  KLD) / x.size(0)
+    kld_loss = mu.pow(2).add_(logvar.exp()).mul_(-1).add_(1).add_(logvar).mean().mul_(-0.5) # 512
+    return bce_loss +  kld_loss / 6
 
 def mse_kl_loss(gen_x, x, mu, logvar):
     """
@@ -24,14 +22,12 @@ def mse_kl_loss(gen_x, x, mu, logvar):
     mu: latent mean
     logvar: latent log variance
     """
-    mse_loss = F.mse_loss(gen_x, x) # 512 x 6
+    mse_loss = F.mse_loss(gen_x, x)
     # loss = 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    kld_loss = mu.pow(2).add_(logvar.exp()).mul_(-1).add_(1).add_(logvar).mean().mul_(-0.5) # 512
-
-    # KL divergence
+    kld_loss = mu.pow(2).add_(logvar.exp()).mul_(-1).add_(1).add_(logvar).mean().mul_(-0.5)
     return mse_loss +  kld_loss / 6
 
-class VAE(nn.Module):
+class VAE(BaseGenerativeModel):
     def __init__(self, input_size, latent_dim):
         super(VAE, self).__init__()
         self.latent_dim = latent_dim
@@ -64,12 +60,6 @@ class VAE(nn.Module):
 
     def decode(self, z):
         return self.decoder(z)
-
-    def forward(self, x=None, num_samples=None):
-        if x is not None:
-            return self.forward_loss(x)
-        else:
-            return self.sample(num_samples)
     
     def forward_loss(self, x):
         x = x.view(x.size(0), -1)
