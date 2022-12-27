@@ -23,7 +23,8 @@ from utils.utils import count_params, init_log, accuracy, FolderDataset
 from utils.dist import setup_distributed
 from utils.inception_score import inception_score
 from pytorch_fid.fid_score import calculate_fid_given_paths
-from models.vae.vae import VAE
+# from models.vae.vae import VAE
+from models.vae.vae_mlp import VAE
 
 parser = argparse.ArgumentParser(description='train domain generalization (oracle)')
 parser.add_argument('--cfg', type=str, required=True)
@@ -54,17 +55,7 @@ def sample(model, cfg, sample_num, save_path):
             sampled_imgs = model(num_samples=1).reshape(1, 3, 32, 32)
             sampled_imgs = sampled_imgs * 0.5 + 0.5
             save_image(sampled_imgs, os.path.join(save_path, f"{i}.jpg"))
-
-def visualize(model, cfg, save_path):
-    model.eval()
-    sampled_imgs = []
-    with torch.no_grad():
-        for i in tqdm.tqdm(range(64)):
-            sampled_img = model(num_samples=1).reshape(1, 3, 32, 32)
-            sampled_img = sampled_img * 0.5 + 0.5
-            sampled_imgs.append(sampled_img)
-        save_image(torch.cat(sampled_imgs, dim=0), os.path.join(save_path, f"visualization.jpg"), nrow=8)
-
+            
 def main():
     args = parser.parse_args()
     cfg = Config.fromfile(args.cfg)
@@ -83,7 +74,8 @@ def main():
     cudnn.enabled = True
     cudnn.benchmark = True
 
-    model = VAE(32*32*3, 256)
+    # model = VAE(in_channels=3, latent_dim=512, hidden_dims=[32, 128, 512])
+    model = VAE(input_size=3*32*32, latent_dim=512)
     
     if rank == 0:
         logger.info('Total params: {:.1f}M\n'.format(count_params(model)))
@@ -159,8 +151,7 @@ def main():
 
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(
-                   param_groups, 1.0)
+            torch.nn.utils.clip_grad_norm_(param_groups, 1.0)
             optimizer.step()
             
             time2 = time.time()
@@ -188,12 +179,15 @@ def main():
         
         if rank == 0:
             logger.info('***** Evaluation ***** >>>>')
-            IS, IS_std, FID = evaluate(model, cfg, sample_num=1000)
+            IS, IS_std, FID = evaluate(model, cfg, sample_num=1000, logger=logger)
             logger.info('Val:  IS: {:.2f} IS std : {:.2f} FID : {:.2f}\n'.format(
                 IS, IS_std, FID))
             torch.save(model.module.state_dict(),
                        os.path.join(args.save_path, 'latest.pth'))
-            visualize(model, cfg, save_path=args.save_path)
+            with torch.no_grad():
+                sampled_imgs = model(num_samples=64).reshape(64, 3, 32, 32)
+                sampled_imgs = sampled_imgs * 0.5 + 0.5
+                save_image(sampled_imgs, os.path.join(args.save_path, f"visualization.jpg"), nrow=8)
 
 
 if __name__ == '__main__':

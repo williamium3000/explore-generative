@@ -27,7 +27,7 @@ def inception_score(imgs, batch_size=64, resize=True, splits=10):
     assert N > batch_size
 
     # Set up dataloader
-    print('Creating data loader')
+    # print('Creating data loader')
     dataloader = torch.utils.data.DataLoader(imgs, batch_size=batch_size)
 
     # Load inception model
@@ -43,7 +43,7 @@ def inception_score(imgs, batch_size=64, resize=True, splits=10):
         return F.softmax(x, dim=1).data.cpu().numpy()
 
     # Get predictions using pre-trained inception_v3 model
-    print('Computing predictions using inception v3 model')
+    # print('Computing predictions using inception v3 model')
     preds = np.zeros((N, 1000))
 
     for i, batch in enumerate(dataloader, 0):
@@ -54,7 +54,7 @@ def inception_score(imgs, batch_size=64, resize=True, splits=10):
         preds[i * batch_size:i * batch_size + batch_size_i] = get_pred(batch)
 
     # Now compute the mean KL Divergence
-    print('Computing KL Divergence')
+    # print('Computing KL Divergence')
     split_scores = []
     for k in range(splits):
         part = preds[k * (N // splits): (k + 1) * (N // splits), :] # split the whole data into several parts
