@@ -139,3 +139,4 @@ nohup.out
 partition
 *.pyc
 work_dirs
+data

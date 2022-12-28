@@ -57,7 +57,7 @@ class DDPM(BaseGenerativeModel):
         x_t = (
             extract(self.sqrt_alphas_bar, t, x_0.shape) * x_0 +
             extract(self.sqrt_one_minus_alphas_bar, t, x_0.shape) * noise)
-        return F.mse_loss(self.model(x_t, t), noise, reduction='none').sum() / self.T
+        return F.mse_loss(self.model(x_t, t), noise, reduction='sum') / self.T
 
     def predict_xt_prev_mean_from_eps(self, x_t, t, eps):
         assert x_t.shape == eps.shape

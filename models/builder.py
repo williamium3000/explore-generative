@@ -1,6 +1,6 @@
-from diffusion.ddpm import DDPM
-from vae.vae_mlp import VAE as VAE_MLP
-from vae.vae_cnn import VAE as VAE_CNN
+from .diffusion.ddpm import DDPM
+from .vae.vae_mlp import VAE as VAE_MLP
+from .vae.vae_cnn import VAE as VAE_CNN
 
 def build_model(cfg):
     if cfg["model"]["name"] == "ddpm":

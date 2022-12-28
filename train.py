@@ -24,37 +24,19 @@ from utils.dist import setup_distributed
 from utils.inception_score import inception_score
 from pytorch_fid.fid_score import calculate_fid_given_paths
 from models.builder import build_model
+from datasets.builder import build_trainset
+from eval import evaluate, sample
 
 parser = argparse.ArgumentParser(description='train domain generalization (oracle)')
 parser.add_argument('--cfg', type=str, required=True)
+parser.add_argument('--dataset', type=str, required=True, choices=["cifar10", "cifar100", "celeba", "imagenet", "mnist"])
+parser.add_argument('--data', type=str, required=True)
 parser.add_argument('--save-path', type=str, required=True)
 parser.add_argument('--local_rank', default=0, type=int)
 parser.add_argument('--port', default=None, type=int)
+parser.add_argument('--eval_freq', default=1, type=int, help="do not eval if -1")
 
-def evaluate(model, cfg, sample_num, logger):
-    with TemporaryDirectory() as temp_dir:
-        logger.info(f"saving in temp dir {temp_dir}.")
-        sample(model, cfg, sample_num, temp_dir)
-        temp_dataset = FolderDataset(temp_dir, transform=transforms.Compose([transforms.Resize(32),
-                                                    transforms.ToTensor(),
-                                                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-                                                    ]))
-        IS, is_std = inception_score(temp_dataset, batch_size=64, resize=True, splits=10)
-        FID = calculate_fid_given_paths(
-            paths=[temp_dir, "utils/fid_statistics/fid_stats_cifar10_train.npz"],
-            batch_size=64, device='cuda',
-            dims=2048, num_workers=4)
-    return IS, is_std, FID
-
-
-def sample(model, cfg, sample_num, save_path):
-    model.eval()
-    with torch.no_grad():
-        for i in tqdm.tqdm(range(sample_num)):
-            sampled_imgs = model(num_samples=1).reshape(1, 3, 32, 32)
-            sampled_imgs = sampled_imgs * 0.5 + 0.5
-            save_image(sampled_imgs, os.path.join(save_path, f"{i}.jpg"))
-            
+     
 def main():
     args = parser.parse_args()
     cfg = Config.fromfile(args.cfg)
@@ -108,13 +90,7 @@ def main():
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank],
                                                       output_device=local_rank, find_unused_parameters=False)
 
-    trainset = torchvision.datasets.CIFAR10(
-        root='../dataSet/cifar10/', train=True, download=True,
-        transform=transforms.Compose([
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-        ]))
+    trainset = build_trainset(args)
     trainsampler = torch.utils.data.distributed.DistributedSampler(trainset)
     trainloader = DataLoader(trainset, batch_size=cfg['batch_size'],
                              pin_memory=True, num_workers=4, drop_last=True, sampler=trainsampler)
@@ -122,16 +98,16 @@ def main():
     if "scheduler" in cfg:
         if cfg["scheduler"]["name"] == "StepLR":
             scheduler = lr_scheduler.StepLR(optimizer, **cfg["scheduler"]["kwargs"])
-        elif args.lr_scheduler == "cosineannealinglr":
+        elif cfg["scheduler"]["name"] == "cosineannealinglr":
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                optimizer, T_max=cfg['epochs'] * len(trainloader), **cfg["scheduler"]["kwargs"]
+                optimizer, T_max=cfg['epochs'] if cfg["scheduler"]["by_epoch"] else cfg['epochs'] * len(trainloader), **cfg["scheduler"]["kwargs"]
             )
-        elif args.lr_scheduler == "exponentiallr":
+        elif cfg["scheduler"]["name"] == "exponentiallr":
             scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, **cfg["scheduler"]["kwargs"])
 
     for epoch in range(cfg['epochs']):
         if rank == 0:
-            logger.info('===========> Epoch: {:}, LR: {:.4f}'.format(
+            logger.info('===========> Epoch: {:}, LR: {:.6f}'.format(
                 epoch, optimizer.param_groups[0]['lr']))
 
         model.train()
@@ -176,15 +152,18 @@ def main():
         if "scheduler" in cfg and cfg["scheduler"]["by_epoch"]:
             scheduler.step()
         
+        if args.eval_freq > 0 and (epoch + 1) % args.eval_freq == 0:
+            IS, IS_std, FID = evaluate(model, cfg, sample_num=1000, local_rank=rank, word_size=word_size)
+            if rank == 0:
+                logger.info('***** Evaluation ***** >>>> IS: {:.2f} IS std : {:.2f} FID : {:.2f}\n'.format(
+                    IS, IS_std, FID))
+            
         if rank == 0:
-            logger.info('***** Evaluation ***** >>>>')
-            IS, IS_std, FID = evaluate(model, cfg, sample_num=1000, logger=logger)
-            logger.info('Val:  IS: {:.2f} IS std : {:.2f} FID : {:.2f}\n'.format(
-                IS, IS_std, FID))
             torch.save(model.module.state_dict(),
                        os.path.join(args.save_path, 'latest.pth'))
+            # visualization
             with torch.no_grad():
-                sampled_imgs = model(num_samples=64).reshape(64, 3, 32, 32)
+                sampled_imgs = model(num_samples=64)
                 sampled_imgs = sampled_imgs * 0.5 + 0.5
                 save_image(sampled_imgs, os.path.join(args.save_path, f"visualization.jpg"), nrow=8)
 
