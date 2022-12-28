@@ -2,26 +2,26 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from typing import List, Callable, Union, Any, TypeVar, Tuple
+from .vae_mlp import bce_kl_loss, mse_kl_loss, mse_kl_loss_norm
 Tensor = TypeVar('torch.tensor')
 
 class VAE(nn.Module):
 
 
-    def __init__(self,
-                 in_channels: int,
-                 latent_dim: int,
-                 hidden_dims: List = None,
-                 **kwargs) -> None:
+    def __init__(self, cfg):
         super(VAE, self).__init__()
 
-        self.latent_dim = latent_dim
-
+        self.latent_dim = cfg["model"]["latent_dim"]
+        self.hidden_dims = cfg["model"].get("hidden_dims", [32, 64, 128, 256, 512])
+        self.img_shape = cfg["model"]["img_shape"]
+        self.in_size = cfg["model"]["in_size"]
+        self.down_size = (self.in_size // (2**len(self.hidden_dims)))
+        
         modules = []
-        if hidden_dims is None:
-            hidden_dims = [32, 64, 128, 256, 512]
 
         # Build Encoder
-        for h_dim in hidden_dims:
+        in_channels = cfg["model"]["in_channels"]
+        for h_dim in self.hidden_dims:
             modules.append(
                 nn.Sequential(
                     nn.Conv2d(in_channels, out_channels=h_dim,
@@ -32,27 +32,27 @@ class VAE(nn.Module):
             in_channels = h_dim
 
         self.encoder = nn.Sequential(*modules)
-        self.fc_mu = nn.Linear(hidden_dims[-1] * 16, latent_dim)
-        self.fc_var = nn.Linear(hidden_dims[-1] * 16, latent_dim)
+        self.fc_mu = nn.Linear(self.hidden_dims[-1] * self.down_size * self.down_size, self.latent_dim)
+        self.fc_var = nn.Linear(self.hidden_dims[-1] * self.down_size * self.down_size, self.latent_dim)
 
 
         # Build Decoder
         modules = []
 
-        self.decoder_input = nn.Linear(latent_dim, hidden_dims[-1] * 16)
+        self.decoder_input = nn.Linear(self.latent_dim, self.hidden_dims[-1] * self.down_size * self.down_size)
 
-        hidden_dims.reverse()
+        self.hidden_dims.reverse()
 
-        for i in range(len(hidden_dims) - 1):
+        for i in range(len(self.hidden_dims) - 1):
             modules.append(
                 nn.Sequential(
-                    nn.ConvTranspose2d(hidden_dims[i],
-                                       hidden_dims[i + 1],
+                    nn.ConvTranspose2d(self.hidden_dims[i],
+                                       self.hidden_dims[i + 1],
                                        kernel_size=3,
                                        stride = 2,
                                        padding=1,
                                        output_padding=1),
-                    nn.BatchNorm2d(hidden_dims[i + 1]),
+                    nn.BatchNorm2d(self.hidden_dims[i + 1]),
                     nn.LeakyReLU())
             )
 
@@ -61,17 +61,18 @@ class VAE(nn.Module):
         self.decoder = nn.Sequential(*modules)
 
         self.final_layer = nn.Sequential(
-                            nn.ConvTranspose2d(hidden_dims[-1],
-                                               hidden_dims[-1],
+                            nn.ConvTranspose2d(self.hidden_dims[-1],
+                                               self.hidden_dims[-1],
                                                kernel_size=3,
                                                stride=2,
                                                padding=1,
                                                output_padding=1),
-                            nn.BatchNorm2d(hidden_dims[-1]),
+                            nn.BatchNorm2d(self.hidden_dims[-1]),
                             nn.LeakyReLU(),
-                            nn.Conv2d(hidden_dims[-1], out_channels= 3,
+                            nn.Conv2d(self.hidden_dims[-1], out_channels= 3,
                                       kernel_size= 3, padding= 1),
                             nn.Tanh())
+        self.loss_fn = globals()[cfg["model"]["loss"]]
 
     def encode(self, input: Tensor) -> List[Tensor]:
         """
@@ -88,7 +89,7 @@ class VAE(nn.Module):
         mu = self.fc_mu(result)
         log_var = self.fc_var(result)
 
-        return [mu, log_var]
+        return mu, log_var
 
     def decode(self, z: Tensor) -> Tensor:
         """
@@ -98,7 +99,7 @@ class VAE(nn.Module):
         :return: (Tensor) [B x C x H x W]
         """
         result = self.decoder_input(z)
-        result = result.view(-1, 512, 4, 4)
+        result = result.view(z.size(0), -1, self.down_size, self.down_size)
         result = self.decoder(result)
         result = self.final_layer(result)
         return result
@@ -120,29 +121,10 @@ class VAE(nn.Module):
         if x is not None:
             mu, log_var = self.encode(x)
             z = self.reparameterize(mu, log_var)
-            return self.loss_function(self.decode(z), x, mu, log_var)
+            return self.loss_fn(self.decode(z), x, mu, log_var)
         else:
             return self.sample(num_samples)
         
-    def loss_function(self,
-                      recons,
-                      input,
-                      mu,
-                      log_var):
-        """
-        Computes the VAE loss function.
-        KL(N(\mu, \sigma), N(0, 1)) = \log \frac{1}{\sigma} + \frac{\sigma^2 + \mu^2}{2} - \frac{1}{2}
-        :param args:
-        :param kwargs:
-        :return:
-        """
-
-        recons_loss = F.mse_loss(recons, input)
-
-        kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim = 0)
-
-        loss = recons_loss + 0.00025 * kld_loss
-        return loss
 
     def sample(self,
                num_samples:int) -> Tensor:

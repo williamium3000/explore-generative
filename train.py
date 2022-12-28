@@ -126,7 +126,8 @@ def main():
 
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(param_groups, 1.0)
+            if "grad_clip" in cfg:
+                torch.nn.utils.clip_grad_norm_(param_groups, cfg["grad_clip"])
             optimizer.step()
             
             time2 = time.time()

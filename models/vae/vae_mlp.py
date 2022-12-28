@@ -27,6 +27,26 @@ def mse_kl_loss(gen_x, x, mu, logvar):
     kld_loss = mu.pow(2).add_(logvar.exp()).mul_(-1).add_(1).add_(logvar).sum().mul_(-0.5)
     return (mse_loss +  kld_loss) / x.size(0)
 
+def mse_kl_loss_norm(
+    gen_x,
+    x,
+    mu,
+    log_var):
+    """
+    Computes the VAE loss function.
+    KL(N(\mu, \sigma), N(0, 1)) = \log \frac{1}{\sigma} + \frac{\sigma^2 + \mu^2}{2} - \frac{1}{2}
+    :param args:
+    :param kwargs:
+    :return:
+    """
+
+    recons_loss = F.mse_loss(gen_x, x)
+
+    kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim = 0)
+
+    loss = recons_loss + 0.00025 * kld_loss
+    return loss
+
 class VAE(BaseGenerativeModel):
     def __init__(self, cfg):
         super(VAE, self).__init__()
@@ -34,7 +54,7 @@ class VAE(BaseGenerativeModel):
         self.input_size = cfg["model"]["input_size"]
         self.latent_dim = cfg["model"]["latent_dim"]
         self.img_shape = cfg["model"]["img_shape"]
-        self.loss_fn = mse_kl_loss if cfg["model"]["loss"] == "mse_kl_loss" else bce_kl_loss
+        self.loss_fn = globals()[cfg["model"]["loss"]]
         
         self.backbone = nn.Sequential(
             nn.Linear(self.input_size, 256),
