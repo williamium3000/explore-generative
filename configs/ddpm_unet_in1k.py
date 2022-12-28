@@ -14,7 +14,7 @@ model=dict(
     beta_1=1e-4,
     beta_T=0.02,
     T=1000,
-    img_shape=[3, 224, 224]
+    img_shape=[3, 64, 64]
 )
 
 scheduler=dict(

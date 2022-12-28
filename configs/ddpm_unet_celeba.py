@@ -31,6 +31,6 @@ lr=1e-4
 weight_decay=1e-4
 
 epochs=200
-batch_size = 32 # 4x
+batch_size = 64 # 4x
 
 fid_statistics="utils/fid_statistics/fid_stats_celeba.npz"
