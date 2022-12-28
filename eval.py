@@ -10,6 +10,7 @@ import torch.backends.cudnn as cudnn
 import tqdm
 from mmcv import Config
 from torchvision.utils import save_image
+from torchvision.transforms import autoaugment, transforms
 from utils.utils import count_params, FolderDataset
 from utils.dist import setup_distributed
 from utils.inception_score import inception_score
