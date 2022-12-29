@@ -8,7 +8,7 @@ def build_trainset(args, cfg):
         return torchvision.datasets.CIFAR10(
             root=args.data, train=True, download=True,
             transform=transforms.Compose([
-                transforms.Resize(cfg["model"]["img_shape"][-1]),
+                transforms.Resize((cfg["model"]["img_shape"][-1], cfg["model"]["img_shape"][-1])),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
@@ -17,7 +17,7 @@ def build_trainset(args, cfg):
         return torchvision.datasets.MNIST(
             root=args.data, train=True, download=True,
             transform=transforms.Compose([
-                transforms.Resize(cfg["model"]["img_shape"][-1]),
+                transforms.Resize((cfg["model"]["img_shape"][-1], cfg["model"]["img_shape"][-1])),
                 transforms.ToTensor(),
                 transforms.Normalize((0.5, ), (0.5, )),
             ]))
@@ -25,7 +25,18 @@ def build_trainset(args, cfg):
         return torchvision.datasets.CIFAR100(
             root=args.data, train=True, download=True,
             transform=transforms.Compose([
-                transforms.Resize(cfg["model"]["img_shape"][-1]),
+                transforms.Resize((cfg["model"]["img_shape"][-1], cfg["model"]["img_shape"][-1])),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            ]))
+    elif args.dataset == "lsun":
+        return torchvision.datasets.LSUN(
+            root=args.data, classes=["bedroom_train"],
+            transform=transforms.Compose([
+                transforms.Resize(256),
+                transforms.CenterCrop(256),
+                transforms.Resize((cfg["model"]["img_shape"][-1], cfg["model"]["img_shape"][-1])),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
@@ -36,7 +47,7 @@ def build_trainset(args, cfg):
             transform=transforms.Compose([
                 transforms.RandomHorizontalFlip(),
                 transforms.CenterCrop(148),
-                transforms.Resize(cfg["model"]["img_shape"][-1]),
+                transforms.Resize((cfg["model"]["img_shape"][-1], cfg["model"]["img_shape"][-1])),
                 transforms.ToTensor(),
                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]))
     elif args.dataset == "imagenet":
@@ -44,7 +55,8 @@ def build_trainset(args, cfg):
             root=os.path.join(args.data, "train"),
             transform=transforms.Compose([
                 transforms.RandomHorizontalFlip(),
-                transforms.CenterCrop(256),
-                transforms.Resize(cfg["model"]["img_shape"][-1]),
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.Resize((cfg["model"]["img_shape"][-1], cfg["model"]["img_shape"][-1])),
                 transforms.ToTensor(),
                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]))

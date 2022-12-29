@@ -29,7 +29,7 @@ from eval import evaluate, sample
 
 parser = argparse.ArgumentParser(description='train domain generalization (oracle)')
 parser.add_argument('--cfg', type=str, required=True)
-parser.add_argument('--dataset', type=str, required=True, choices=["cifar10", "cifar100", "celeba", "imagenet", "mnist"])
+parser.add_argument('--dataset', type=str, required=True, choices=["cifar10", "cifar100", "celeba", "imagenet", "mnist", "lsun"])
 parser.add_argument('--data', type=str, required=True)
 parser.add_argument('--save-path', type=str, required=True)
 parser.add_argument('--local_rank', default=0, type=int)
