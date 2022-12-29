@@ -99,7 +99,7 @@ def main():
     model.cuda(local_rank)
     
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank],
-                                                      output_device=local_rank, find_unused_parameters=False)
+                                                      output_device=local_rank, find_unused_parameters=cfg.get("find_unused_parameters", False))
 
     trainset = build_trainset(args, cfg)
     trainsampler = torch.utils.data.distributed.DistributedSampler(trainset)
@@ -140,18 +140,25 @@ def main():
             
             img = img.cuda()
             loss_g, loss_d = model(x=img)
-
+            
             optimizer_g.zero_grad()
             loss_g.backward()
             if "grad_clip" in cfg:
-                torch.nn.utils.clip_grad_norm_(model.G.parameters(), cfg["grad_clip"])
-            optimizer_g.step()
+                torch.nn.utils.clip_grad_norm_(model.module.G.parameters(), cfg["grad_clip"])
+            if i % cfg.get("n_critic", 1) == 0:
+                # train the generator every n_critic iterations, default to 1
+                optimizer_g.step()
             
             optimizer_d.zero_grad()
             loss_d.backward()
             if "grad_clip" in cfg:
-                torch.nn.utils.clip_grad_norm_(model.D.parameters(), cfg["grad_clip"])
+                torch.nn.utils.clip_grad_norm_(model.module.D.parameters(), cfg["grad_clip"])
             optimizer_d.step()
+            
+            if "lipschitz_clip" in cfg:
+                # clip weights of discriminator to maintain lipschitz continuity
+                for p in model.module.D.parameters():
+                    p.data.clamp_(-cfg["lipschitz_clip"], cfg["lipschitz_clip"])
             
             time2 = time.time()
             

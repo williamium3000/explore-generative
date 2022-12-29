@@ -4,8 +4,8 @@ import torch
 import numpy as np
 from .base import BaseGanModel
 
-def loss_fn_g(x_d):
-    return F.binary_cross_entropy(x_d, torch.ones((x_d.size(0), 1)).cuda())
+def loss_fn_g(gen_x_d):
+    return F.binary_cross_entropy(gen_x_d, torch.ones((gen_x_d.size(0), 1)).cuda())
 
 def loss_fn_d(gen_x_d, x_d):
     return (F.binary_cross_entropy(gen_x_d, torch.zeros((x_d.size(0), 1)).cuda()) + F.binary_cross_entropy(x_d, torch.ones((x_d.size(0), 1)).cuda())) / 2
@@ -56,7 +56,6 @@ class Discriminator(nn.Module):
 
 
 class GAN(BaseGanModel):
-    
     def __init__(self, cfg) -> None:
         super(GAN, self).__init__()
         self.latent_dim = cfg["model"]["latent_dim"]

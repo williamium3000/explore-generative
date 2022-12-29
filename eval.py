@@ -9,6 +9,7 @@ import torch.backends.cudnn as cudnn
 
 import tqdm
 from mmcv import Config
+import mmcv
 from torchvision.utils import save_image
 from torchvision.transforms import autoaugment, transforms
 from utils.utils import count_params, FolderDataset
@@ -41,8 +42,7 @@ def evaluate(model, cfg, sample_num, local_rank, word_size):
             dir_tensor[:len(temp_dir)] = temp_dir
         dist.broadcast(dir_tensor, 0)
         temp_dir = dir_tensor.cpu().numpy().tobytes().decode().rstrip()
-        
-        print(f"saving in temp dir {temp_dir}.")
+        # print(f"saving in temp dir {temp_dir}.")
         sample(model, cfg, sample_num, temp_dir, local_rank, word_size)
         
         IS, IS_std, FID = 0.0, 0.0, 0.0
@@ -68,22 +68,34 @@ def evaluate(model, cfg, sample_num, local_rank, word_size):
         return IS.item(), IS_std.item(), FID.item()
 
 
-def sample(model, cfg, sample_num, save_path, local_rank, word_size):
+def sample(model, cfg, sample_num, save_path, local_rank, world_size):
     model.eval()
     with torch.no_grad():
-        for i in tqdm.tqdm(range(local_rank, sample_num // cfg['batch_size'], word_size)):
+        if local_rank == 0:
+            prog_bar = mmcv.ProgressBar(sample_num)
+        for i in range(local_rank, sample_num // cfg['batch_size'], world_size):
             sampled_imgs = model(num_samples=cfg['batch_size'])
             sampled_imgs = sampled_imgs * 0.5 + 0.5
             # save each individual image
             for j in range(cfg['batch_size']):
                 save_image(sampled_imgs[j].unsqueeze(0), os.path.join(save_path, f"{i * cfg['batch_size'] + j}.jpg"))
+                
+                if local_rank == 0:
+                    # update prog_bar
+                    update_num = world_size if (sample_num // cfg['batch_size']) - i >= world_size else (sample_num // cfg['batch_size']) - i
+                    prog_bar.update(update_num)
+                
         # sample the rest with rank 0
         if local_rank == 0:
             sampled_imgs = model(num_samples=sample_num - (sample_num // cfg['batch_size']) * cfg['batch_size'])
             sampled_imgs = sampled_imgs * 0.5 + 0.5
             # save each individual image
             for j in range(sampled_imgs.size(0)):
-                save_image(sampled_imgs[j].unsqueeze(0), os.path.join(save_path, f"{i * cfg['batch_size'] + j}.jpg"))
+                save_image(sampled_imgs[j].unsqueeze(0),
+                           os.path.join(save_path, f"{(sample_num // cfg['batch_size']) * cfg['batch_size'] + j}.jpg"))
+                
+                # update prog_bar
+                prog_bar.update()
                
 def main():
     args = parser.parse_args()

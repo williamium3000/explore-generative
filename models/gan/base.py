@@ -15,7 +15,9 @@ class BaseGanModel(BaseGenerativeModel):
         z = torch.randn(x.size(0),
                         self.latent_dim).cuda()
         gen_x = self.G(z)
+
         return self.loss_fn_g(self.D(gen_x)), self.loss_fn_d(self.D(gen_x.detach()), self.D(x))
+    
     def sample(self, num_samples):
         z = torch.randn(num_samples,
                         self.latent_dim).cuda()
