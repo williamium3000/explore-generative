@@ -61,24 +61,35 @@ def main():
     if rank == 0:
         logger.info('Total params: {:.1f}M\n'.format(count_params(model)))
 
-    param_groups = model.parameters()
     opt_name = cfg["optimizer"].lower()
     if opt_name.startswith("sgd"):
-        optimizer = torch.optim.SGD(
-            param_groups,
+        optimizer_g = torch.optim.SGD(
+            model.G.parameters(),
+            lr=cfg['lr'],
+            momentum=cfg['momentum'],
+            weight_decay=cfg['weight_decay'],
+            nesterov="nesterov" in opt_name,
+        )
+        optimizer_d = torch.optim.SGD(
+            model.D.parameters(),
             lr=cfg['lr'],
             momentum=cfg['momentum'],
             weight_decay=cfg['weight_decay'],
             nesterov="nesterov" in opt_name,
         )
     elif opt_name == "rmsprop":
-        optimizer = torch.optim.RMSprop(
-            param_groups, lr=cfg['lr'], momentum=cfg['momentum'], weight_decay=cfg['weight_decay'], eps=0.0316, alpha=0.9
+        optimizer_g = torch.optim.RMSprop(
+            model.G.parameters(), lr=cfg['lr'], momentum=cfg['momentum'], weight_decay=cfg['weight_decay'], eps=0.0316, alpha=0.9
+        )
+        optimizer_d = torch.optim.RMSprop(
+            model.D.parameters(), lr=cfg['lr'], momentum=cfg['momentum'], weight_decay=cfg['weight_decay'], eps=0.0316, alpha=0.9
         )
     elif opt_name == "adamw":
-        optimizer = torch.optim.AdamW(param_groups, lr=cfg['lr'], weight_decay=cfg['weight_decay'])
+        optimizer_g = torch.optim.AdamW(model.G.parameters(), lr=cfg['lr'], weight_decay=cfg['weight_decay'])
+        optimizer_d = torch.optim.AdamW(model.D.parameters(), lr=cfg['lr'], weight_decay=cfg['weight_decay'])
     elif opt_name == "adam":
-        optimizer = torch.optim.Adam(param_groups, lr=cfg['lr'], weight_decay=cfg['weight_decay'])
+        optimizer_g = torch.optim.Adam(model.G.parameters(), lr=cfg['lr'], weight_decay=cfg['weight_decay'], betas=cfg['betas'])
+        optimizer_d = torch.optim.Adam(model.D.parameters(), lr=cfg['lr'], weight_decay=cfg['weight_decay'], betas=cfg['betas'])
     else:
         raise RuntimeError(f"Invalid optimizer {opt_name}. Only SGD, RMSprop and AdamW are supported.")
     
@@ -97,21 +108,27 @@ def main():
 
     if "scheduler" in cfg:
         if cfg["scheduler"]["name"] == "StepLR":
-            scheduler = lr_scheduler.StepLR(optimizer, **cfg["scheduler"]["kwargs"])
+            scheduler_g = lr_scheduler.StepLR(optimizer_g, **cfg["scheduler"]["kwargs"])
+            scheduler_d = lr_scheduler.StepLR(optimizer_d, **cfg["scheduler"]["kwargs"])
         elif cfg["scheduler"]["name"] == "cosineannealinglr":
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                optimizer, T_max=cfg['epochs'] if cfg["scheduler"]["by_epoch"] else cfg['epochs'] * len(trainloader), **cfg["scheduler"]["kwargs"]
+            scheduler_g = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer_g, T_max=cfg['epochs'] if cfg["scheduler"]["by_epoch"] else cfg['epochs'] * len(trainloader), **cfg["scheduler"]["kwargs"]
+            )
+            scheduler_d = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer_d, T_max=cfg['epochs'] if cfg["scheduler"]["by_epoch"] else cfg['epochs'] * len(trainloader), **cfg["scheduler"]["kwargs"]
             )
         elif cfg["scheduler"]["name"] == "exponentiallr":
-            scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, **cfg["scheduler"]["kwargs"])
+            scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optimizer_g, **cfg["scheduler"]["kwargs"])
+            scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optimizer_d, **cfg["scheduler"]["kwargs"])
 
     for epoch in range(cfg['epochs']):
         if rank == 0:
             logger.info('===========> Epoch: {:}, LR: {:.6f}'.format(
-                epoch, optimizer.param_groups[0]['lr']))
+                epoch, optimizer_g.param_groups[0]['lr']))
 
         model.train()
-        total_loss = 0.0
+        total_loss_g = 0.0
+        total_loss_d = 0.0
         total_num = 0.0
         data_time = 0.0
         model_time = 0.0
@@ -122,48 +139,58 @@ def main():
             time1 = time.time()
             
             img = img.cuda()
-            loss = model(x=img)
+            loss_g, loss_d = model(x=img)
 
-            optimizer.zero_grad()
-            loss.backward()
+            optimizer_g.zero_grad()
+            loss_g.backward()
             if "grad_clip" in cfg:
-                torch.nn.utils.clip_grad_norm_(param_groups, cfg["grad_clip"])
-            optimizer.step()
+                torch.nn.utils.clip_grad_norm_(model.G.parameters(), cfg["grad_clip"])
+            optimizer_g.step()
+            
+            optimizer_d.zero_grad()
+            loss_d.backward()
+            if "grad_clip" in cfg:
+                torch.nn.utils.clip_grad_norm_(model.D.parameters(), cfg["grad_clip"])
+            optimizer_d.step()
             
             time2 = time.time()
             
             bs = img.size(0)
             total_num += bs
-            total_loss += loss * bs
+            total_loss_g += loss_g * bs
+            total_loss_d += loss_d * bs
             
             data_time += time1 - time0
             model_time += time2 - time1
             
             if (i % 50 == 0) and (rank == 0):
-                logger.info('Iters: {} / {}, data time: {:.2f}, model time: {:.2f}, Total loss: {:.4f}'.format(
+                logger.info('Iters: {} / {}, data time: {:.2f}, model time: {:.2f}, loss g: {:.4f} loss d: {:.4f}'.format(
                     i, len(trainloader), 
                     data_time / (i + 1), model_time / (i + 1),
-                    total_loss.item() / total_num))
+                    total_loss_g.item() / total_num, total_loss_d.item() / total_num))
             
             if "scheduler" in cfg and not cfg["scheduler"]["by_epoch"]:
-                scheduler.step()
+                scheduler_g.step()
+                scheduler_d.step()
             
             time0 = time.time()
 
         if "scheduler" in cfg and cfg["scheduler"]["by_epoch"]:
-            scheduler.step()
+            scheduler_g.step()
+            scheduler_d.step()
         
         if args.eval_freq > 0 and (epoch + 1) % args.eval_freq == 0:
             IS, IS_std, FID = evaluate(model, cfg, sample_num=1000, local_rank=rank, word_size=word_size)
             if rank == 0:
                 logger.info('***** Evaluation ***** >>>> IS: {:.2f} IS std : {:.2f} FID : {:.2f}\n'.format(
                     IS, IS_std, FID))
-            
+        
         # visualization
         with torch.no_grad():
             model.eval()
             sampled_imgs = model(num_samples=64)
             sampled_imgs = sampled_imgs * 0.5 + 0.5
+        
         if rank == 0:
             torch.save(model.module.state_dict(),
                        os.path.join(args.save_path, 'latest.pth'))
