@@ -75,6 +75,8 @@ class DCGAN(GAN):
         self.img_shape = cfg["model"]["img_shape"]
         self.G = Generator(self.latent_dim, self.img_shape[0])
         self.D = Discriminator(self.latent_dim, self.img_shape[0])
+        self.G.weight_init(mean=0.0, std=0.02)
+        self.D.weight_init(mean=0.0, std=0.02)
 
 
     

@@ -30,7 +30,7 @@ optimizer="AdamW"
 lr=1e-4
 weight_decay=1e-4
 
-epochs=200
+epochs=50
 batch_size=64 # 4x
 
 fid_statistics="utils/fid_statistics/fid_stats_imagenet_train.npz"

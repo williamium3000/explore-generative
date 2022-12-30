@@ -1,14 +1,7 @@
 model = dict(
     name="wgan",
     latent_dim=128,
-    img_shape=[3, 32, 32]
-)
-scheduler = dict(
-    name="cosineannealinglr",
-    by_epoch=True,
-    kwargs=dict(
-        eta_min=0
-    )
+    img_shape=[3, 64, 64]
 )
 
 # optim

@@ -10,7 +10,7 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 python \
     -m torch.distributed.launch --nproc_per_node=4 --master_port $port \
     train.py \
     --dataset lsun \
-    --data data/lsun \
-    --eval_freq 1 \
+    --data ../dataSet/lsun \
+    --eval_freq 10 \
     --cfg configs/ddpm_unet_lsun.py \
     --save-path $save_path --port $port 2>&1 | tee $save_path/$now.txt

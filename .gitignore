@@ -140,3 +140,4 @@ partition
 *.pyc
 work_dirs
 data
+_cache_dataSetlsunbedroomtrainlmdb
